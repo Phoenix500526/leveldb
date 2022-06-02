@@ -513,3 +513,5 @@ if(LEVELDB_INSTALL)
     DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}"
   )
 endif(LEVELDB_INSTALL)
+
+add_subdirectory(app)
