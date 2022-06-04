@@ -1117,6 +1117,7 @@ Status DBImpl::Get(const ReadOptions& options, const Slice& key,
   Status s;
   MutexLock l(&mutex_);
   SequenceNumber snapshot;
+  // Phoenix：将序列号保存到 snapshot 当中
   if (options.snapshot != nullptr) {
     snapshot =
         static_cast<const SnapshotImpl*>(options.snapshot)->sequence_number();
@@ -1127,6 +1128,8 @@ Status DBImpl::Get(const ReadOptions& options, const Slice& key,
   MemTable* mem = mem_;
   MemTable* imm = imm_;
   Version* current = versions_->current();
+  // Phoenix：在实例化 Memtable、Immutable MemTable 以及 Version 的指针对象时，都会调用 Ref 函数
+  // 该函数的主要作用是增加对象的引用计数。当最后一个引用该对象的对象调用了 Unref 函数后，引用清零会触发指针对象的清除与回收机制
   mem->Ref();
   if (imm != nullptr) imm->Ref();
   current->Ref();
@@ -1217,6 +1220,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
   uint64_t last_sequence = versions_->LastSequence();
   Writer* last_writer = &w;
   if (status.ok() && updates != nullptr) {  // nullptr batch is for compactions
+    // Phoenix：合并写入操作
     WriteBatch* write_batch = BuildBatchGroup(&last_writer);
     WriteBatchInternal::SetSequence(write_batch, last_sequence + 1);
     last_sequence += WriteBatchInternal::Count(write_batch);
@@ -1227,6 +1231,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
     // into mem_.
     {
       mutex_.Unlock();
+      // Phoenix：将更新记录到日志文件并将日志文件刷新到磁盘
       status = log_->AddRecord(WriteBatchInternal::Contents(write_batch));
       bool sync_error = false;
       if (status.ok() && options.sync) {
@@ -1236,6 +1241,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
         }
       }
       if (status.ok()) {
+        // Phoenix：将更新写入到 MemTable 中
         status = WriteBatchInternal::InsertInto(write_batch, mem_);
       }
       mutex_.Lock();
