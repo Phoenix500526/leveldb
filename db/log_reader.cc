@@ -53,6 +53,7 @@ bool Reader::SkipToInitialBlock() {
   return true;
 }
 
+// Slice 的功能有些类似于 stringview，自身并不负责内存的管理和分配，因此 ReadRecord 接口需要调用者提供一个字符串指针
 bool Reader::ReadRecord(Slice* record, std::string* scratch) {
   if (last_record_offset_ < initial_offset_) {
     if (!SkipToInitialBlock()) {
@@ -107,10 +108,8 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch) {
 
       case kFirstType:
         if (in_fragmented_record) {
-          // Handle bug in earlier versions of log::Writer where
-          // it could emit an empty kFirstType record at the tail end
-          // of a block followed by a kFullType or kFirstType record
-          // at the beginning of the next block.
+          // 兼容早期版本：早期版本的 log::Writer 会写入一条空的 kFirstType 记录
+          // 到块的末尾，并在下一个块开始位置写入一个 kFullType 或 kFirstType 记录
           if (!scratch->empty()) {
             ReportCorruption(scratch->size(), "partial record without end(2)");
           }
@@ -192,6 +191,7 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result) {
       if (!eof_) {
         // Last read was a full read, so this is a trailer to skip
         buffer_.clear();
+        // file_ 类型为 SequentialFile 代表的是日志文件
         Status status = file_->Read(kBlockSize, &buffer_, backing_store_);
         end_of_buffer_offset_ += buffer_.size();
         if (!status.ok()) {

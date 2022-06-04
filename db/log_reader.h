@@ -90,20 +90,19 @@ class Reader {
   bool const checksum_;
   char* const backing_store_;
   Slice buffer_;
-  bool eof_;  // Last Read() indicated EOF by returning < kBlockSize
+  bool eof_;  // 如果上一次读返回的长度 < kBlockSize，则暗示到了文件结尾 EOF
 
-  // Offset of the last record returned by ReadRecord.
-  uint64_t last_record_offset_;
-  // Offset of the first location past the end of buffer_.
-  uint64_t end_of_buffer_offset_;
+  uint64_t last_record_offset_;   // 函数ReadRecord返回的上一个record的偏移
+
+  uint64_t end_of_buffer_offset_; // 在 buffer_ 结尾后的第一个位置的偏移量
 
   // Offset at which to start looking for the first record to return
-  uint64_t const initial_offset_;
+  uint64_t const initial_offset_; // 开始查找到第一条记录的偏移量
 
   // True if we are resynchronizing after a seek (initial_offset_ > 0). In
   // particular, a run of kMiddleType and kLastType records can be silently
   // skipped in this mode
-  bool resyncing_;
+  bool resyncing_;  // True 表示在查找后进行再次同步。特别的，当记录类型为 kMiddleType 和 kLastType 时跳过该过程
 };
 
 }  // namespace log

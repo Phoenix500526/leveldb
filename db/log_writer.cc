@@ -86,6 +86,7 @@ Status Writer::EmitPhysicalRecord(RecordType t, const char* ptr,
 
   // Format the header
   char buf[kHeaderSize];
+  // 此处以小端序存储
   buf[4] = static_cast<char>(length & 0xff);
   buf[5] = static_cast<char>(length >> 8);
   buf[6] = static_cast<char>(t);
