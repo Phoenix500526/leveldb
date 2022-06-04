@@ -34,3 +34,7 @@ target_link_libraries(read PRIVATE Threads::Threads libleveldb.a)
 add_executable(snapshot snapshot.cc)
 target_include_directories(snapshot PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(snapshot PRIVATE Threads::Threads libleveldb.a)
+
+add_executable(memtable_demo memtable_demo.cc)
+target_include_directories(memtable_demo PUBLIC ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(memtable_demo PRIVATE Threads::Threads libleveldb.a)
