@@ -57,12 +57,12 @@ class TwoLevelIterator : public Iterator {
   void SetDataIterator(Iterator* data_iter);
   void InitDataBlock();
 
-  BlockFunction block_function_;
-  void* arg_;
+  BlockFunction block_function_;  // block 操作函数
+  void* arg_;                     // BlockFunction 的自定义参数
   const ReadOptions options_;
   Status status_;
-  IteratorWrapper index_iter_;
-  IteratorWrapper data_iter_;  // May be nullptr
+  IteratorWrapper index_iter_;    // 遍历 index block 的迭代器
+  IteratorWrapper data_iter_;     // May be nullptr，遍历 data block 的迭代器
   // If data_iter_ is non-null, then "data_block_handle_" holds the
   // "index_value" passed to block_function_ to create the data_iter_.
   std::string data_block_handle_;
@@ -81,9 +81,9 @@ TwoLevelIterator::~TwoLevelIterator() = default;
 
 void TwoLevelIterator::Seek(const Slice& target) {
   index_iter_.Seek(target);
-  InitDataBlock();
-  if (data_iter_.iter() != nullptr) data_iter_.Seek(target);
-  SkipEmptyDataBlocksForward();
+  InitDataBlock();  // 根据 index_iter 设置好 data_iter
+  if (data_iter_.iter() != nullptr) data_iter_.Seek(target);  // 调整 data_iter 跳转到 target
+  SkipEmptyDataBlocksForward(); // 调整 iter，跳过空的 block
 }
 
 void TwoLevelIterator::SeekToFirst() {
