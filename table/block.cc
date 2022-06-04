@@ -34,6 +34,7 @@ Block::Block(const BlockContents& contents)
       // The size is too small for NumRestarts()
       size_ = 0;
     } else {
+      // 之所以要多加一个 1 是因为 Block 的重启点区域的最后 4B 保存了 restart point count
       restart_offset_ = size_ - (1 + NumRestarts()) * sizeof(uint32_t);
     }
   }
@@ -83,7 +84,7 @@ class Block::Iter : public Iterator {
 
   // current_ is offset in data_ of current entry.  >= restarts_ if !Valid
   uint32_t current_;
-  uint32_t restart_index_;  // Index of restart block in which current_ falls
+  uint32_t restart_index_;  // 当前 current 所在的 block 所对应的 restart 的偏移
   std::string key_;
   Slice value_;
   Status status_;

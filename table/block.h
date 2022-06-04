@@ -33,10 +33,10 @@ class Block {
 
   uint32_t NumRestarts() const;
 
-  const char* data_;
-  size_t size_;
-  uint32_t restart_offset_;  // Offset in data_ of restart array
-  bool owned_;               // Block owns data_[]
+  const char* data_;          // block 数据指针
+  size_t size_;               // block 数据大小
+  uint32_t restart_offset_;  // 重启点数组在 data_ 中的偏移
+  bool owned_;               // data_[] 是否是 Block 拥有的
 };
 
 }  // namespace leveldb

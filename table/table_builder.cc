@@ -35,17 +35,17 @@ struct TableBuilder::Rep {
     index_block_options.block_restart_interval = 1;
   }
 
-  Options options;
-  Options index_block_options;
-  WritableFile* file;
-  uint64_t offset;
+  Options options;              // data block 的选项
+  Options index_block_options;  // index block 的选项
+  WritableFile* file;           // sstable 文件
+  uint64_t offset;              // 要写入 data block 在 sstable 文件中的偏移，初始化为 0
   Status status;
-  BlockBuilder data_block;
-  BlockBuilder index_block;
-  std::string last_key;
-  int64_t num_entries;
+  BlockBuilder data_block;      // 当前操作的 data block
+  BlockBuilder index_block;     // sstable 的 index block
+  std::string last_key;         // 当前 data block 的最后 k/v 对中的 key
+  int64_t num_entries;          // 当前 data block 的个数，初始化时为 0
   bool closed;  // Either Finish() or Abandon() has been called.
-  FilterBlockBuilder* filter_block;
+  FilterBlockBuilder* filter_block; // 根据 filter 数据快速定位 key 是否不在 block 中
 
   // We do not emit the index entry for a block until we have seen the
   // first key for the next data block.  This allows us to use shorter
@@ -57,9 +57,9 @@ struct TableBuilder::Rep {
   //
   // Invariant: r->pending_index_entry is true only if data_block is empty.
   bool pending_index_entry;
-  BlockHandle pending_handle;  // Handle to add to index block
+  BlockHandle pending_handle;  // 添加到index block的data block的信息
 
-  std::string compressed_output;
+  std::string compressed_output;  //压缩后的data block，临时存储，写入后即被清空
 };
 
 TableBuilder::TableBuilder(const Options& options, WritableFile* file)
@@ -98,7 +98,8 @@ void TableBuilder::Add(const Slice& key, const Slice& value) {
   if (r->num_entries > 0) {
     assert(r->options.comparator->Compare(key, Slice(r->last_key)) > 0);
   }
-
+  // 如果设置了 pending_index_entry，key 为下一个 data block 的第一个 k/v，然后利用 FindShortestSeparator 
+  // 找到 last_key 和 key 之间的最小分隔符
   if (r->pending_index_entry) {
     assert(r->data_block.empty());
     r->options.comparator->FindShortestSeparator(&r->last_key, key);
@@ -124,11 +125,17 @@ void TableBuilder::Add(const Slice& key, const Slice& value) {
 
 void TableBuilder::Flush() {
   Rep* r = rep_;
+  // 只有状态不为 closed 并且状态为 ok 的情况下才能够进行 flush
   assert(!r->closed);
   if (!ok()) return;
+  // block 若为空，自然也就没有 flush 的必要了
   if (r->data_block.empty()) return;
+  // 如果 pending_index_entry 为 true，则调用 Add 的时候会将其置为 false
   assert(!r->pending_index_entry);
+  // 写入data block，并设置其index entry信息—BlockHandle对象
   WriteBlock(&r->data_block, &r->pending_handle);
+  //写入成功，则Flush文件，并设置r->pending_index_entry为true，
+  //以根据下一个data block的first key调整index entry的key—即r->last_key
   if (ok()) {
     r->pending_index_entry = true;
     r->status = r->file->Flush();
@@ -157,6 +164,7 @@ void TableBuilder::WriteBlock(BlockBuilder* block, BlockHandle* handle) {
 
     case kSnappyCompression: {
       std::string* compressed = &r->compressed_output;
+      // 支持 snappy 压缩算法或者压缩后的大小小于原大小的 1/8
       if (port::Snappy_Compress(raw.data(), raw.size(), compressed) &&
           compressed->size() < raw.size() - (raw.size() / 8u)) {
         block_contents = *compressed;
@@ -196,6 +204,7 @@ void TableBuilder::WriteRawBlock(const Slice& block_contents,
 Status TableBuilder::status() const { return rep_->status; }
 
 Status TableBuilder::Finish() {
+  // 调用 Flush 写入最后一块 data block，然后使能 closed，表明该 sstable 已经关闭，无法再写入
   Rep* r = rep_;
   Flush();
   assert(!r->closed);

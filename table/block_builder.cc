@@ -58,6 +58,7 @@ size_t BlockBuilder::CurrentSizeEstimate() const {
           sizeof(uint32_t));                     // Restart array length
 }
 
+// 将重启点的数据和重启点长度，追加到 buffer_ 的后面
 Slice BlockBuilder::Finish() {
   // Append restart array
   for (size_t i = 0; i < restarts_.size(); i++) {
@@ -88,13 +89,13 @@ void BlockBuilder::Add(const Slice& key, const Slice& value) {
   }
   const size_t non_shared = key.size() - shared;
 
-  // Add "<shared><non_shared><value_size>" to buffer_
+  // 添加 "<shared><non_shared><value_size>" 到 buffer
   PutVarint32(&buffer_, shared);
   PutVarint32(&buffer_, non_shared);
   PutVarint32(&buffer_, value.size());
 
   // Add string delta to buffer_ followed by value
-  buffer_.append(key.data() + shared, non_shared);
+  buffer_.append(key.data() + shared, non_shared);  // 将 key 的非公共前缀部分添加到 buffer_ 中
   buffer_.append(value.data(), value.size());
 
   // Update state
