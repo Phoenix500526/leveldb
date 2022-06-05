@@ -46,16 +46,17 @@ struct LRUHandle {
   LRUHandle* next_hash;
   LRUHandle* next;
   LRUHandle* prev;
-  size_t charge;  // TODO(opt): Only allow uint32_t?
+  size_t charge;  // 记录这条cache entry中的value所指的内存区域大小，cache的内容有容量限制。具体逻辑看LRUCache的Insert()函数
   size_t key_length;
   bool in_cache;     // Whether entry is in the cache.
   uint32_t refs;     // References, including cache reference, if present.
   uint32_t hash;     // Hash of key(); used for fast sharding and comparisons
-  char key_data[1];  // Beginning of key
+  char key_data[1];  // 为了实现变长的struct结构，代表了这个动态申请的数组的第一个元素
 
   Slice key() const {
     // next is only equal to this if the LRU handle is the list head of an
     // empty list. List heads never have meaningful keys.
+    // 当链表为空时，头节点的 next 指针会指向自身，而头节点本身是不保存实际数据的
     assert(next != this);
 
     return Slice(key_data, key_length);
@@ -336,6 +337,10 @@ void LRUCache::Prune() {
 static const int kNumShardBits = 4;
 static const int kNumShards = 1 << kNumShardBits;
 
+// levelDB是多线程的，每个线程访问缓冲区的时候都会将缓冲区锁住，为了多线程访问，尽可能快速，
+// 减少锁开销，ShardedLRUCache内部有16个LRUCache，查找Key时首先计算key属于哪一个分片，
+// 分片的计算方法是取32位hash值的高4位，然后在相应的LRUCache中进行查找，这样就大大减少了多线程的访问锁的开销。
+// SharedLRUCache 只做一件事，就是计算Hash 值，选择LRUCache
 class ShardedLRUCache : public Cache {
  private:
   LRUCache shard_[kNumShards];
@@ -350,6 +355,7 @@ class ShardedLRUCache : public Cache {
 
  public:
   explicit ShardedLRUCache(size_t capacity) : last_id_(0) {
+    // 向上取整除法
     const size_t per_shard = (capacity + (kNumShards - 1)) / kNumShards;
     for (int s = 0; s < kNumShards; s++) {
       shard_[s].SetCapacity(per_shard);

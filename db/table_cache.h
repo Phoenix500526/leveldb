@@ -44,16 +44,17 @@ class TableCache {
              uint64_t file_size, const Slice& k, void* arg,
              void (*handle_result)(void*, const Slice&, const Slice&));
 
-  // Evict any entry for the specified file number
+  // 用以清除指定文件(file_number)的所有 entry
   void Evict(uint64_t file_number);
 
  private:
+  // file_number 是用来找到 LRUHandle 分片的
   Status FindTable(uint64_t file_number, uint64_t file_size, Cache::Handle**);
 
   Env* const env_;
   const std::string dbname_;
   const Options& options_;
-  Cache* cache_;
+  Cache* cache_;       // 实际上是 SharedLRUCache 实例
 };
 
 }  // namespace leveldb
