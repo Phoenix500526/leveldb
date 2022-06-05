@@ -166,9 +166,9 @@ class Version {
 
   /*
    * LevelDB 有两种触发 Compaction 操作的策略：
-   * 1. size_compaction(compaction_score_ + compaction_level_)
+   * 1. size_compaction(compaction_score_ + compaction_level_)，代表的写操作
    *    通过判断 Level0 中的文件个数或者 Level1 ~ Level5 中的文件总大小来计算 compaction_score_ 和 compaction_level_。触发方式通过 Finalize 函数
-   * 2. seek_compaction(file_to_compact_ + file_to_compact_level_)
+   * 2. seek_compaction(file_to_compact_ + file_to_compact_level_)  代表了读操作
    *    因为一个层级中某个文件无效读取次数过多导致的 Compaction 操作，即将冷数据放到更高的层级中
    * LevelDB 会按照先 1 后 2 的策略应用顺序进行 Compaction
    */
@@ -373,12 +373,13 @@ class Compaction {
 
   Compaction(const Options* options, int level);
 
-  int level_;
+  int level_; // 进行本次 Compaction 操作的层级
   uint64_t max_output_file_size_;
-  Version* input_version_;
-  VersionEdit edit_;
+  Version* input_version_;  // 进行本次 Compaction 操作时的当前版本
+  VersionEdit edit_;        // 保存本次 Compaction 操作后的相关文件信息
 
   // Each compaction reads inputs from "level_" and "level_+1"
+  // inputs_[0] 代表 Level n 层参与的文件， inputs_[1] 代表 Level n+1 层参与的文件
   std::vector<FileMetaData*> inputs_[2];  // The two sets of inputs
 
   // State used to check for number of overlapping grandparent files

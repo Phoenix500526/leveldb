@@ -1255,19 +1255,21 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
 
 Compaction* VersionSet::PickCompaction() {
   Compaction* c;
-  int level;
+  int level;  // 进行本次 Compaction 操作的层级
 
   // We prefer compactions triggered by too much data in a level over
   // the compactions triggered by seeks.
   const bool size_compaction = (current_->compaction_score_ >= 1);
   const bool seek_compaction = (current_->file_to_compact_ != nullptr);
   if (size_compaction) {
+    // 获取本次 Compaction 操作的层级
     level = current_->compaction_level_;
     assert(level >= 0);
     assert(level + 1 < config::kNumLevels);
     c = new Compaction(options_, level);
 
     // Pick the first file that comes after compact_pointer_[level]
+    // 选出在 compact_pointer_ 之后的第一个文件
     for (size_t i = 0; i < current_->files_[level].size(); i++) {
       FileMetaData* f = current_->files_[level][i];
       if (compact_pointer_[level].empty() ||
@@ -1276,32 +1278,37 @@ Compaction* VersionSet::PickCompaction() {
         break;
       }
     }
+    // 若上面的代码没能在 current_->files_ 中选出比 compact_pointer_[level] 更大的文件
+    // 则说明对该层的键值空间已经完成了一次遍历，则回头取出该层级中的第一个文件
     if (c->inputs_[0].empty()) {
       // Wrap-around to the beginning of the key space
       c->inputs_[0].push_back(current_->files_[level][0]);
     }
   } else if (seek_compaction) {
+    // 如果因为 seek_compaction 触发了 Compaction 操作，则直接将无效查找次数超限的文件选定为本次进行 Compaction 操作的 Level n 层文件
     level = current_->file_to_compact_level_;
     c = new Compaction(options_, level);
     c->inputs_[0].push_back(current_->file_to_compact_);
   } else {
     return nullptr;
   }
-
+  // 将 Compaction 实例的 input_version_ 设置为当前版本
   c->input_version_ = current_;
-  c->input_version_->Ref();
+  c->input_version_->Ref(); // 为当前版本增加引用计数
 
   // Files in level 0 may overlap each other, so pick up all overlapping ones
   if (level == 0) {
     InternalKey smallest, largest;
+    // 取出 inputs_[0] 中所有文件的最小值和最大值，并分别赋值到 smallest 和 largest_ 中
     GetRange(c->inputs_[0], &smallest, &largest);
     // Note that the next call will discard the file we placed in
     // c->inputs_[0] earlier and replace it with an overlapping set
     // which will include the picked file.
+    // Level 0 将所有 smallest 到 largest 范围的文件放入 inputs_[0] 
     current_->GetOverlappingInputs(0, &smallest, &largest, &c->inputs_[0]);
     assert(!c->inputs_[0].empty());
   }
-
+  // 选取 Level n+1 层需要参与的文件并放到 inputs_[1] 中
   SetupOtherInputs(c);
 
   return c;
@@ -1387,22 +1394,30 @@ void AddBoundaryInputs(const InternalKeyComparator& icmp,
 }
 
 void VersionSet::SetupOtherInputs(Compaction* c) {
-  const int level = c->level();
+  const int level = c->level(); // 获得本次进行 Compaction 操作的层级
   InternalKey smallest, largest;
 
   AddBoundaryInputs(icmp_, current_->files_[level], &c->inputs_[0]);
+  // 获取 inputs_[0] 中所有文件的最大键和最小键，并分别赋值给 largest 和 smallest
   GetRange(c->inputs_[0], &smallest, &largest);
-
+  // 通过 inputs_[0] 中的最大/最小键查找 Level n+1 层的文件，并分别赋值到 inputs_[1] 中
   current_->GetOverlappingInputs(level + 1, &smallest, &largest,
                                  &c->inputs_[1]);
   AddBoundaryInputs(icmp_, current_->files_[level + 1], &c->inputs_[1]);
 
   // Get entire range covered by compaction
   InternalKey all_start, all_limit;
+  // 合并 inputs_[0] 和 inputs_[1] 中的所有文件的最大键和最小键，并赋值给 all_start 和 all_limit
   GetRange2(c->inputs_[0], c->inputs_[1], &all_start, &all_limit);
 
   // See if we can grow the number of inputs in "level" without
   // changing the number of "level+1" files we pick up.
+  /* 下面的 if 语句实际上是起到优化作用：
+   * 1. 基于 all_start 和 all_limit 重新检索 inputs_[0] 中的文件，看是否可以扩充
+   * 2. 如果扩充后满足：
+   *    2.1 inputs_[1] 中的文件个数不增加 (这是为了避免 Level 1 到 Level 6 之间的所有文件键范围出现重叠)
+   *    2.2 inputs_[0] 和 inputs_[1] 的总文件大小不超过 50 MB (这是为了防止执行一次 Compaction 操作导致大量的 I/O 操作，从而影响系统性能)
+   */
   if (!c->inputs_[1].empty()) {
     std::vector<FileMetaData*> expanded0;
     current_->GetOverlappingInputs(level, &all_start, &all_limit, &expanded0);

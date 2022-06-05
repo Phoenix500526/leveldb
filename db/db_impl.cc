@@ -232,33 +232,40 @@ void DBImpl::RemoveObsoleteFiles() {
   }
 
   // Make a set of all of the live files
+  // 将所有正在执行 Compaction 操作的文件，以及版本集合中所有版本的文件都放到 live 集合当中
   std::set<uint64_t> live = pending_outputs_;
   versions_->AddLiveFiles(&live);
 
   std::vector<std::string> filenames;
+  // 将 dbname_ 目录下的所有文件都保存到 filenames 向量中
   env_->GetChildren(dbname_, &filenames);  // Ignoring errors on purpose
   uint64_t number;
   FileType type;
-  std::vector<std::string> files_to_delete;
+  std::vector<std::string> files_to_delete; // 用来保存待删除的文件
   for (std::string& filename : filenames) {
+    // 将每个文件的序列号和类型解析道 number 和 type 变量中
     if (ParseFileName(filename, &number, &type)) {
-      bool keep = true;
+      bool keep = true; // keep 用来标记一个文件是否需要保存
       switch (type) {
         case kLogFile:
+          // 删除掉文件序号小于 VersionSet 的 log_number_ 且不等于 prev_log_number_的日志文件
           keep = ((number >= versions_->LogNumber()) ||
                   (number == versions_->PrevLogNumber()));
           break;
         case kDescriptorFile:
           // Keep my manifest file, and any newer incarnations'
           // (in case there is a race that allows other incarnations)
+          // 旧的 Manifest 文件可以删除
           keep = (number >= versions_->ManifestFileNumber());
           break;
         case kTableFile:
+          // 没有参与当前 Compaction 操作且不在版本集合中的 SSTable 文件可以删除
           keep = (live.find(number) != live.end());
           break;
         case kTempFile:
           // Any temp files that are currently being written to must
           // be recorded in pending_outputs_, which is inserted into "live"
+          // 临时文件
           keep = (live.find(number) != live.end());
           break;
         case kCurrentFile:
@@ -269,8 +276,10 @@ void DBImpl::RemoveObsoleteFiles() {
       }
 
       if (!keep) {
+        // 将 keep 为 false 的文件压入 files_to_delete 数组
         files_to_delete.push_back(std::move(filename));
         if (type == kTableFile) {
+          // 若为 SSTable 文件，则还需要从 LRUCache 中淘汰出去
           table_cache_->Evict(number);
         }
         Log(options_.info_log, "Delete type=%d #%lld\n", static_cast<int>(type),
@@ -283,6 +292,7 @@ void DBImpl::RemoveObsoleteFiles() {
   // have unique names which will not collide with newly created files and
   // are therefore safe to delete while allowing other threads to proceed.
   mutex_.Unlock();
+  // 删除所有可以删除的文件
   for (const std::string& filename : files_to_delete) {
     env_->RemoveFile(dbname_ + "/" + filename);
   }
@@ -701,7 +711,7 @@ void DBImpl::BackgroundCall() {
 
 void DBImpl::BackgroundCompaction() {
   mutex_.AssertHeld();
-
+  // 判断是否需要对一个 MemTable 进行 Compaction 操作（将一个 MemTable 生成为一个 SSTable）
   if (imm_ != nullptr) {
     CompactMemTable();
     return;
@@ -723,6 +733,7 @@ void DBImpl::BackgroundCompaction() {
         (m->end ? m->end->DebugString().c_str() : "(end)"),
         (m->done ? "(end)" : manual_end.DebugString().c_str()));
   } else {
+    // 通过 PickCompaction 选取需要参与的文件
     c = versions_->PickCompaction();
   }
 
@@ -747,6 +758,7 @@ void DBImpl::BackgroundCompaction() {
         status.ToString().c_str(), versions_->LevelSummary(&tmp));
   } else {
     CompactionState* compact = new CompactionState(c);
+    // 执行 Compaction 操作
     status = DoCompactionWork(compact);
     if (!status.ok()) {
       RecordBackgroundError(status);
@@ -901,12 +913,13 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   assert(versions_->NumLevelFiles(compact->compaction->level()) > 0);
   assert(compact->builder == nullptr);
   assert(compact->outfile == nullptr);
+  // 如果没有快照，则将当前版本的 last_sequence 赋值为最小序列号；否则根据最老快照获取序列号
   if (snapshots_.empty()) {
     compact->smallest_snapshot = versions_->LastSequence();
   } else {
     compact->smallest_snapshot = snapshots_.oldest()->sequence_number();
   }
-
+  // 返回一个归并排序迭代器，每次选取最小的键写入文件
   Iterator* input = versions_->MakeInputIterator(compact->compaction);
 
   // Release mutex while we're actually doing the compaction work
@@ -918,6 +931,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   std::string current_user_key;
   bool has_current_user_key = false;
   SequenceNumber last_sequence_for_key = kMaxSequenceNumber;
+  // 遍历迭代器
   while (input->Valid() && !shutting_down_.load(std::memory_order_acquire)) {
     // Prioritize immutable compaction work
     if (has_imm_.load(std::memory_order_relaxed)) {
@@ -942,6 +956,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
     }
 
     // Handle key/value, add to state, etc.
+    // 判断一个键是否可删除，如果 drop = true，则该键不需要写入新的文件
     bool drop = false;
     if (!ParseInternalKey(key, &ikey)) {
       // Do not hide error keys
@@ -985,7 +1000,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
         compact->compaction->IsBaseLevelForKey(ikey.user_key),
         (int)last_sequence_for_key, (int)compact->smallest_snapshot);
 #endif
-
+    // 如果该键需要写入新文件，则写入一个 SSTable 中
     if (!drop) {
       // Open output file if necessary
       if (compact->builder == nullptr) {
@@ -1009,7 +1024,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
         }
       }
     }
-
+    // 继续查找下一个最小的键
     input->Next();
   }
 
@@ -1017,6 +1032,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
     status = Status::IOError("Deleting DB during compaction");
   }
   if (status.ok() && compact->builder != nullptr) {
+    // 生成一个 SSTable 文件并刷新到磁盘
     status = FinishCompactionOutputFile(compact, input);
   }
   if (status.ok()) {
@@ -1040,6 +1056,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   stats_[compact->compaction->level() + 1].Add(stats);
 
   if (status.ok()) {
+    // 调用 VersionSet 的 LogAndApply 方法生成新版本
     status = InstallCompactionResults(compact);
   }
   if (!status.ok()) {
