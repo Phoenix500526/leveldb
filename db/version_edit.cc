@@ -11,6 +11,7 @@ namespace leveldb {
 
 // Tag numbers for serialized VersionEdit.  These numbers are written to
 // disk and should not be changed.
+// LevelDB 通过为每个成员变量定义一个 Tag，通过 Tag 就可以知道解码数据的类型
 enum Tag {
   kComparator = 1,
   kLogNumber = 2,
@@ -60,19 +61,21 @@ void VersionEdit::EncodeTo(std::string* dst) const {
     PutVarint32(dst, kLastSequence);
     PutVarint64(dst, last_sequence_);
   }
-
+  // compact_pointers_ 中保存了下次 Compaction 操作时应当从哪个键开始进行
   for (size_t i = 0; i < compact_pointers_.size(); i++) {
     PutVarint32(dst, kCompactPointer);
     PutVarint32(dst, compact_pointers_[i].first);  // level
     PutLengthPrefixedSlice(dst, compact_pointers_[i].second.Encode());
   }
 
+  // 删除文件只保留了层级和文件编号
   for (const auto& deleted_file_kvp : deleted_files_) {
     PutVarint32(dst, kDeletedFile);
     PutVarint32(dst, deleted_file_kvp.first);   // level
     PutVarint64(dst, deleted_file_kvp.second);  // file number
   }
 
+  // 新增文件则保留了层级以及相关的 FileMetaData(文件序号、大小、最小键、最大键)
   for (size_t i = 0; i < new_files_.size(); i++) {
     const FileMetaData& f = new_files_[i].second;
     PutVarint32(dst, kNewFile);

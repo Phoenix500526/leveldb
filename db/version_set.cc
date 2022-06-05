@@ -774,6 +774,7 @@ void VersionSet::AppendVersion(Version* v) {
   v->next_->prev_ = v;
 }
 
+// 每次进行完 Compaction 操作后，调用 LogAndApply 将 VersionEdit 应用到当前版本上
 Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu) {
   if (edit->has_log_number_) {
     assert(edit->log_number_ >= log_number_);
@@ -788,13 +789,16 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu) {
 
   edit->SetNextFile(next_file_number_);
   edit->SetLastSequence(last_sequence_);
-
+  // step 1. 构造一个新的 Version
   Version* v = new Version(this);
   {
+    // step 2. 对 current_ 应用 VersionEdit 
     Builder builder(this, current_);
     builder.Apply(edit);
+    // step 3. 将当前状态保存到 v 中
     builder.SaveTo(v);
   }
+  // step 4. 执行 Finalize 方法，对新版本中的 compaction_socre_ 和 compaction_level_进行赋值
   Finalize(v);
 
   // Initialize new descriptor log file if necessary by creating
@@ -812,7 +816,7 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu) {
       s = WriteSnapshot(descriptor_log_);
     }
   }
-
+  //step 5 将版本变化写入 MANIFEST 文件中
   // Unlock during expensive MANIFEST log write
   {
     mu->Unlock();

@@ -59,9 +59,10 @@ bool SomeFileOverlapsRange(const InternalKeyComparator& icmp,
 
 class Version {
  public:
+  // 键查找时用来保存中间状态的一个结构
   struct GetStats {
-    FileMetaData* seek_file;
-    int seek_file_level;
+    FileMetaData* seek_file;  // 文件信息
+    int seek_file_level;      // 文件所属层级
   };
 
   // Append to *iters a sequence of iterators that will
@@ -145,23 +146,32 @@ class Version {
   void ForEachOverlapping(Slice user_key, Slice internal_key, void* arg,
                           bool (*func)(void*, int, FileMetaData*));
 
-  VersionSet* vset_;  // VersionSet to which this Version belongs
-  Version* next_;     // Next version in linked list
-  Version* prev_;     // Previous version in linked list
-  int refs_;          // Number of live refs to this version
+  VersionSet* vset_;  // 当前版本属于哪个 VersionSet
+  Version* next_;     // 指向 VersionSet 中的下一个版本
+  Version* prev_;     // 指向 VersionSet 中的前一个版本
+  int refs_;          // 该版本的引用计数
 
-  // List of files per level
+  // 每个层级所包含的 SSTable 文件，每个文件都以一个 FileMetaData 结构表示
   std::vector<FileMetaData*> files_[config::kNumLevels];
 
   // Next file to compact based on seek stats.
-  FileMetaData* file_to_compact_;
-  int file_to_compact_level_;
+  FileMetaData* file_to_compact_; // 下次要进行 Compaction 操作的文件,文件的选择规则和 FileMetaData 的 allowed_seeks 有关
+  int file_to_compact_level_;     // 下次要进行 Compaction 操作的文件所属的层级
 
   // Level that should be compacted next and its compaction score.
   // Score < 1 means compaction is not strictly needed.  These fields
   // are initialized by Finalize().
-  double compaction_score_;
-  int compaction_level_;
+  double compaction_score_; // Compaction 的积分，如果大于 1，说明需要进行一次 compaction 操作
+  int compaction_level_;    // 表明需要进行 Compaction 操作的层级
+
+  /*
+   * LevelDB 有两种触发 Compaction 操作的策略：
+   * 1. size_compaction(compaction_score_ + compaction_level_)
+   *    通过判断 Level0 中的文件个数或者 Level1 ~ Level5 中的文件总大小来计算 compaction_score_ 和 compaction_level_。触发方式通过 Finalize 函数
+   * 2. seek_compaction(file_to_compact_ + file_to_compact_level_)
+   *    因为一个层级中某个文件无效读取次数过多导致的 Compaction 操作，即将冷数据放到更高的层级中
+   * LevelDB 会按照先 1 后 2 的策略应用顺序进行 Compaction
+   */
 };
 
 class VersionSet {
@@ -298,21 +308,21 @@ class VersionSet {
   const Options* const options_;
   TableCache* const table_cache_;
   const InternalKeyComparator icmp_;
-  uint64_t next_file_number_;
-  uint64_t manifest_file_number_;
-  uint64_t last_sequence_;
-  uint64_t log_number_;
+  uint64_t next_file_number_;     // 下一个文件序号
+  uint64_t manifest_file_number_; // Manifest 的文件序号
+  uint64_t last_sequence_;        // 当前最大的写入序号
+  uint64_t log_number_;           // Log 文件的文件序列号
   uint64_t prev_log_number_;  // 0 or backing store for memtable being compacted
 
   // Opened lazily
   WritableFile* descriptor_file_;
   log::Writer* descriptor_log_;
   Version dummy_versions_;  // Head of circular doubly-linked list of versions.
-  Version* current_;        // == dummy_versions_.prev_
+  Version* current_;        // == dummy_versions_.prev_  指向最新的 Version
 
   // Per-level key at which the next compaction at that level should start.
   // Either an empty string, or a valid InternalKey.
-  std::string compact_pointer_[config::kNumLevels];
+  std::string compact_pointer_[config::kNumLevels]; //每个层级下次开始进行 Compaction 操作室时需要从哪个键开始
 };
 
 // A Compaction encapsulates information about a compaction.
